@@ -5,9 +5,13 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
+#include "Components/ChildActorComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
+
+#include "Inventory/PickableItem.h"
+#include "Inventory/BackpackComponent.h"
 
 //////////////////////////////////////////////////////////////////////////
 // APickerCharacter
@@ -45,6 +49,19 @@ APickerCharacter::APickerCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named MyCharacter (to avoid direct content references in C++)
+
+	BackpackComponent = CreateDefaultSubobject<UBackpackComponent>(TEXT("BackpackComponent"));
+
+	PickableChild = CreateDefaultSubobject<UChildActorComponent>(TEXT("PickableChild"));
+	PickableChild->SetupAttachment(RootComponent);
+	PickableChild->SetHiddenInGame(true);
+	// TODO: attach to socket on skeleton
+}
+
+void APickerCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	PickableChild->SetChildActorClass(APickableItem::StaticClass());
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -74,8 +91,34 @@ void APickerCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerIn
 
 	// VR headset functionality
 	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &APickerCharacter::OnResetVR);
+
+	PlayerInputComponent->BindAction("Interact", IE_Pressed, this, &APickerCharacter::InteractPressed);
 }
 
+void APickerCharacter::InteractPressed()
+{
+	if(BackpackComponent->HasItem())
+	{
+		BackpackComponent->DropItem(GetActorLocation() + GetActorForwardVector() * 100.f);
+		PickableChild->SetHiddenInGame(true);
+		return;
+	}
+
+	TArray<AActor*> OverlappingActors;
+	GetOverlappingActors(OverlappingActors, APickableItem::StaticClass());
+
+	for (auto* OverlappingActor : OverlappingActors)
+	{
+		// TODO: check distance, pick nearest
+		if (APickableItem* PickableItem = StaticCast<APickableItem*>(OverlappingActor))
+		{
+			BackpackComponent->PickItem(PickableItem);
+			StaticCast<APickableItem*>(PickableChild->GetChildActor())->SetItemType(PickableItem->ItemType);
+			PickableChild->SetHiddenInGame(false); // TODO: bind on loaded
+			break;
+		}
+	}
+}
 
 void APickerCharacter::OnResetVR()
 {
